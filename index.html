@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Chess Sudoku Solver</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 30px;
+            padding: 20px;
+            background-color: #333;
+            color: #eee;
+        }
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        #board-container {
+            display: grid;
+            grid-template-columns: repeat(9, 60px);
+            grid-template-rows: repeat(9, 60px);
+            border: 3px solid #111;
+        }
+        #board-feedback {
+            min-height: 48px;
+            font-weight: bold;
+            text-align: center;
+            color: #ff7675;
+        }
+        .square {
+            width: 60px; height: 60px; display: flex;
+            justify-content: center; align-items: center;
+            font-size: 45px; box-sizing: border-box; user-select: none;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .square.light { background-color: #F0D9B5; }
+        .square.dark { background-color: #B58863; }
+        .square.highlight-violation {
+            background-color: #ff7675 !important;
+            box-shadow: 0 0 10px 3px #d63031;
+            border-radius: 5px;
+        }
+        .square:nth-child(9n+1) { border-left: 2px solid #111; }
+        .square:nth-child(n):nth-child(-n+9) { border-top: 2px solid #111; }
+        .square:nth-child(3n) { border-right: 2px solid #111; }
+        .square:nth-child(n+19):nth-child(-n+27),
+        .square:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid #111; }
+
+        .sidebar {
+            display: flex; flex-direction: column;
+            gap: 15px; width: 280px;
+        }
+        #piece-palette {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 10px; padding: 15px; background-color: #444; border-radius: 8px;
+        }
+        .palette-piece {
+            font-size: 45px; cursor: grab; text-align: center;
+            transition: transform 0.1s ease;
+        }
+        .palette-piece:hover { transform: scale(1.1); }
+        .palette-piece:active { cursor: grabbing; }
+
+        .info-box {
+            background-color: #444; border-radius: 8px;
+            padding: 10px 15px;
+        }
+        #score-display { font-size: 2.2em; text-align: center; color: #55efc4; }
+        .log-box {
+            height: 150px; overflow-y: auto; background-color: #2d3436;
+            padding: 15px; border-radius: 5px; font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em; border: 1px solid #636e72;
+        }
+        .log-box ul { padding-left: 20px; margin: 0; }
+        .log-box li { margin-bottom: 8px; }
+        
+        #text-io-container {
+            width: 546px;
+            padding: 15px; background-color: #444; border-radius: 8px; box-sizing: border-box;
+        }
+        #board-text-area {
+            width: 100%; box-sizing: border-box; height: 150px;
+            background-color: #2d3436; color: #eee; border: 1px solid #636e72;
+            border-radius: 5px; font-family: 'Courier New', Courier, monospace;
+            font-size: 1.1em; resize: vertical;
+        }
+        #load-text-button { margin-top: 10px; }
+
+        .piece-white { color: white; text-shadow: 0 0 3px black, 0 0 3px black; }
+        .piece-black { color: black; }
+        h2 { text-align: center; margin: 0; padding: 5px 0 10px 0; }
+        button {
+            width: 100%; padding: 10px; font-size: 1.1em;
+            background-color: #0984e3; color: white; border: none;
+            border-radius: 5px; cursor: pointer; transition: background-color 0.2s;
+        }
+        button:hover { background-color: #74b9ff; }
+    </style>
+</head>
+<body>
+
+    <div class="main-container">
+        <h1>Peaceful Weighted Chess Sudoku</h1>
+        <div id="board-container"></div>
+        <div id="board-feedback"></div>
+        <div id="text-io-container">
+            <h2>Board as Text</h2>
+            <textarea id="board-text-area" spellcheck="false"></textarea>
+            <button id="load-text-button">Load from Text</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="info-box">
+            <h2>Pieces</h2>
+            <div id="piece-palette"></div>
+        </div>
+        <div class="info-box">
+            <h2>Score</h2>
+            <div id="score-display">0.0</div>
+        </div>
+        <div class="info-box">
+            <h2>Positional Errors</h2>
+            <div id="positional-log" class="log-box"></div>
+        </div>
+        <div class="info-box">
+            <h2>Rule Requirements</h2>
+            <div id="requirements-log" class="log-box"></div>
+        </div>
+        <button id="reset-button">Reset Board</button>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    const PIECES = {
+        W_KING: { id: 'WK', score: 0, unicode: '♔', color: 'white' }, W_QUEEN: { id: 'WQ', score: 8, unicode: '♕', color: 'white' }, W_ROOK: { id: 'WR', score: 5, unicode: '♖', color: 'white' }, W_BISHOP: { id: 'WB', score: 3.3, unicode: '♗', color: 'white' }, W_KNIGHT: { id: 'WN', score: 2.7, unicode: '♘', color: 'white' }, W_PAWN: { id: 'WP', score: 1, unicode: '♙', color: 'white' },
+        B_KING: { id: 'BK', score: 0, unicode: '♚', color: 'black' }, B_QUEEN: { id: 'BQ', score: 8, unicode: '♛', color: 'black' }, B_ROOK: { id: 'BR', score: 5, unicode: '♜', color: 'black' }, B_BISHOP: { id: 'BB', score: 3.3, unicode: '♝', color: 'black' }, B_KNIGHT: { id: 'BN', score: 2.7, unicode: '♞', color: 'black' }, B_PAWN: { id: 'BP', score: 1, unicode: '♟', color: 'black' },
+    };
+    const ID_TO_KEY_MAP = Object.fromEntries(Object.entries(PIECES).map(([key, val]) => [val.id, key]));
+    
+    const GRID_SIZE = 9;
+    let boardState = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+
+    const boardContainer = document.getElementById('board-container');
+    const piecePalette = document.getElementById('piece-palette');
+    const scoreDisplay = document.getElementById('score-display');
+    const positionalLog = document.getElementById('positional-log');
+    const requirementsLog = document.getElementById('requirements-log');
+    const resetButton = document.getElementById('reset-button');
+    const boardFeedback = document.getElementById('board-feedback');
+    const boardTextArea = document.getElementById('board-text-area');
+    const loadTextButton = document.getElementById('load-text-button');
+
+    function init() {
+        boardContainer.innerHTML = '';
+        for (let r=0; r<GRID_SIZE; r++) for (let c=0; c<GRID_SIZE; c++) {
+            const square = document.createElement('div');
+            square.classList.add('square', (r + c) % 2 === 0 ? 'light' : 'dark');
+            square.dataset.r = r; square.dataset.c = c;
+            square.addEventListener('dragover', e => e.preventDefault());
+            square.addEventListener('drop', onDrop);
+            square.addEventListener('click', onClickSquare);
+            boardContainer.appendChild(square);
+        }
+        piecePalette.innerHTML = '';
+        for (const [key, piece] of Object.entries(PIECES)) {
+            const el = document.createElement('div');
+            el.classList.add('palette-piece', `piece-${piece.color}`);
+            el.draggable = true;
+            el.textContent = piece.unicode;
+            el.dataset.pieceKey = key; 
+            el.addEventListener('dragstart', onDragStart);
+            piecePalette.appendChild(el);
+        }
+        boardState = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+        fullUpdate();
+    }
+
+    function onDragStart(event) { event.dataTransfer.setData('text/plain', event.target.dataset.pieceKey); }
+    function onDrop(event) {
+        event.preventDefault();
+        const key = event.dataTransfer.getData('text/plain');
+        if (!key || !PIECES[key]) return;
+        boardState[event.currentTarget.dataset.r][event.currentTarget.dataset.c] = PIECES[key];
+        fullUpdate();
+    }
+    function onClickSquare(event) {
+        if (boardState[event.currentTarget.dataset.r][event.currentTarget.dataset.c]) {
+            boardState[event.currentTarget.dataset.r][event.currentTarget.dataset.c] = null;
+            fullUpdate();
+        }
+    }
+
+    function updateBoardFromText() {
+        const tokens = boardTextArea.value.trim().split(/[\s,]+/);
+        if (tokens.length !== GRID_SIZE * GRID_SIZE) {
+            boardFeedback.innerHTML = `Error: Input must have ${GRID_SIZE*GRID_SIZE} items.`;
+            return;
+        }
+        const newBoard = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i], r = Math.floor(i/GRID_SIZE), c = i%GRID_SIZE;
+            const key = ID_TO_KEY_MAP[token];
+            if (token==='--'||token==='') { newBoard[r][c] = null; }
+            else if (key) { newBoard[r][c] = PIECES[key]; }
+            else {
+                boardFeedback.innerHTML = `Error: Invalid piece ID "<strong>${token}</strong>".`;
+                return;
+            }
+        }
+        boardState = newBoard;
+        fullUpdate();
+    }
+
+    function fullUpdate() {
+        renderBoard();
+        renderBoardAsText();
+        const { positionalViolations, globalViolations } = validateBoard();
+        renderViolations(positionalViolations, globalViolations);
+        updateScore();
+    }
+    
+    function updateScore() {
+        let total = 0;
+        boardState.flat().forEach(p => { if (p) total += p.score; });
+        scoreDisplay.textContent = total.toFixed(1);
+    }
+    
+    function renderBoard() {
+        for (let r=0; r<GRID_SIZE; r++) for (let c=0; c<GRID_SIZE; c++) {
+            const sq = boardContainer.children[r * GRID_SIZE + c];
+            sq.innerHTML = '';
+            sq.classList.remove('highlight-violation');
+            if (boardState[r][c]) {
+                sq.innerHTML = `<span class="piece-${boardState[r][c].color}">${boardState[r][c].unicode}</span>`;
+            }
+        }
+    }
+
+    function renderBoardAsText() {
+        const rows = boardState.map(row => row.map(cell => cell?.id || '--').join(' '));
+        boardTextArea.value = rows.join('\n');
+    }
+    
+    function renderViolations(positional, global) {
+        boardFeedback.innerHTML = '';
+        if (positional.length > 0) {
+            boardFeedback.innerHTML = positional.map(v => v.message).join('<br>');
+        }
+        
+        renderLog(positionalLog, positional, 'No positional errors.');
+        renderLog(requirementsLog, global, 'All requirements met.');
+        
+        positional.forEach(({ locations }) => {
+            locations.forEach(([r, c]) => {
+                boardContainer.children[r * GRID_SIZE + c].classList.add('highlight-violation');
+            });
+        });
+        
+        if (positional.length === 0 && global.length === 0) {
+            boardFeedback.innerHTML = '✓ Board is valid!';
+            boardFeedback.style.color = '#55efc4';
+        } else {
+            boardFeedback.style.color = '#ff7675';
+        }
+    }
+    
+    // *** THIS IS THE CORRECTED FUNCTION ***
+    function renderLog(logElement, violations, successMsg) {
+        logElement.innerHTML = '';
+        const ul = document.createElement('ul');
+        if (violations.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = successMsg;
+            ul.appendChild(li);
+        } else {
+            violations.forEach(({ message }) => {
+                const li = document.createElement('li');
+                li.textContent = message;
+                ul.appendChild(li);
+            });
+        }
+        logElement.appendChild(ul);
+    }
+
+    function validateBoard() {
+        const positionalViolations = [];
+        const globalViolations = [];
+        const units = getUnits(); 
+        const majorPieceRules = { 'WQ': 'White Queen', 'BQ': 'Black Queen', 'WR': 'White Rook', 'BR': 'Black Rook', 'WB': 'White Bishop', 'BB': 'Black Bishop', 'WN': 'White Knight', 'BN': 'Black Knight' };
+
+        for (const type of ['row', 'col', 'box']) {
+            units[type].forEach((unit, i) => {
+                const counts = getCounts(unit);
+                for (const id in majorPieceRules) {
+                    if (counts[id] > 1) { positionalViolations.push({ message: `Too many ${majorPieceRules[id]}s in ${type} ${i + 1}.`, locations: unit.filter(([r,c]) => boardState[r][c]?.id === id) }); }
+                }
+            });
+        }
+        units.diag.forEach((diag, i) => {
+            const counts = getCounts(diag);
+            const diagPieceRules = {'WQ': 'White Queen', 'BQ': 'Black Queen', 'WB': 'White Bishop', 'BB': 'Black Bishop'};
+            for(const id in diagPieceRules){
+                if (counts[id] > 1) { positionalViolations.push({ message: `Too many ${diagPieceRules[id]}s on diagonal ${i + 1}.`, locations: diag.filter(([r,c]) => boardState[r][c]?.id === id) }); }
+            }
+        });
+
+        for (const type of ['row', 'col', 'box', 'diag']) {
+            units[type].forEach((unit, i) => {
+                if ((getCounts(unit).EMPTY || 0) === 0) { positionalViolations.push({ message: `No Empty Square in ${type} ${i + 1}.`, locations: unit }); }
+            });
+        }
+
+        for (const type of ['row', 'col', 'box']) {
+             units[type].forEach((unit, i) => {
+                const counts = getCounts(unit);
+                if ((counts.WP || 0) === 0) { globalViolations.push({ message: `Missing White Pawn in ${type} ${i + 1}.`}); }
+                if ((counts.BP || 0) === 0) { globalViolations.push({ message: `Missing Black Pawn in ${type} ${i + 1}.`}); }
+            });
+        }
+
+        const totalCounts = getCounts(units.all);
+        const minCounts = { 'WQ': 1, 'BQ': 1, 'WR': 2, 'BR': 2, 'WB': 2, 'BB': 2, 'WN': 2, 'BN': 2, 'WP': 8, 'BP': 8 };
+        for (const id in minCounts) {
+            if ((totalCounts[id] || 0) < minCounts[id]) {
+                globalViolations.push({ message: `Not enough ${PIECES[ID_TO_KEY_MAP[id]].unicode}s (need ${minCounts[id]}).` });
+            }
+        }
+        if((totalCounts['WK'] || 0) !== 1) { globalViolations.push({message: `There must be exactly one White King.`}); }
+        if((totalCounts['BK'] || 0) !== 1) { globalViolations.push({message: `There must be exactly one Black King.`}); }
+
+        const wkPos = findPiece('WK'), bkPos = findPiece('BK');
+        if (wkPos && isSquareAttacked(wkPos[0], wkPos[1], 'black')) { positionalViolations.push({ message: 'White King is in check!', locations: [wkPos] }); }
+        if (bkPos && isSquareAttacked(bkPos[0], bkPos[1], 'white')) { positionalViolations.push({ message: 'Black King is in check!', locations: [bkPos] }); }
+        
+        return { positionalViolations, globalViolations };
+    }
+    
+    function getUnits() {
+        const u = { row:[], col:[], box:[], diag:[], all:[] };
+        for (let i=0; i<GRID_SIZE; i++) {
+            const r=[], c=[];
+            for (let j=0; j<GRID_SIZE; j++) { r.push([i,j]); c.push([j,i]); u.all.push([i,j]); }
+            u.row.push(r); u.col.push(c);
+        }
+        for (let br=0; br<GRID_SIZE; br+=3) for (let bc=0; bc<GRID_SIZE; bc+=3) {
+            const b=[];
+            for (let r=0; r<3; r++) for (let c=0; c<3; c++) b.push([br+r, bc+c]);
+            u.box.push(b);
+        }
+        const d1=[], d2=[];
+        for (let i=0; i<GRID_SIZE; i++) { d1.push([i,i]); d2.push([i,GRID_SIZE-1-i]); }
+        u.diag.push(d1, d2);
+        return u;
+    }
+    function getCounts(unit) {
+        const counts = {};
+        unit.forEach(([r,c]) => { counts[boardState[r][c]?.id||'EMPTY']=(counts[boardState[r][c]?.id||'EMPTY']||0)+1; });
+        return counts;
+    }
+    function findPiece(id) {
+        for (let r=0; r<GRID_SIZE; r++) for (let c=0; c<GRID_SIZE; c++) if (boardState[r][c]?.id===id) return [r,c];
+        return null;
+    }
+    function isSquareAttacked(r_target, c_target, byColor) {
+        const p_row=byColor==='white'?r_target+1:r_target-1, p_id=byColor==='white'?'WP':'BP';
+        if(boardState[p_row]?.[c_target-1]?.id===p_id) return true;
+        if(boardState[p_row]?.[c_target+1]?.id===p_id) return true;
+        const n_moves=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]], n_id=byColor==='white'?'WN':'BN';
+        for(const[dr,dc] of n_moves) if(boardState[r_target+dr]?.[c_target+dc]?.id===n_id) return true;
+        const k_moves=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]], k_id=byColor==='white'?'WK':'BK';
+        for(const[dr,dc] of k_moves) if(boardState[r_target+dr]?.[c_target+dc]?.id===k_id) return true;
+        for(const[dr,dc] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+            for (let i=1; i<GRID_SIZE; i++) {
+                const r_a=r_target+i*dr, c_a=c_target+i*dc, p=boardState[r_a]?.[c_a];
+                if(p){
+                    if(p.color===byColor){
+                        const is_s=dr===0||dc===0;
+                        if((is_s&&(p.id.endsWith('R')||p.id.endsWith('Q')))||(!is_s&&(p.id.endsWith('B')||p.id.endsWith('Q')))) return true;
+                    }
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+
+    resetButton.addEventListener('click', init);
+    loadTextButton.addEventListener('click', updateBoardFromText);
+    init();
+});
+</script>
+</body>
+</html>
