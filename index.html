@@ -289,12 +289,14 @@ document.addEventListener('DOMContentLoaded', () => {
         logElement.appendChild(ul);
     }
 
+    // *** MODIFIED FUNCTION ***
     function validateBoard() {
         const positionalViolations = [];
         const globalViolations = [];
         const units = getUnits(); 
         const majorPieceRules = { 'WQ': 'White Queen', 'BQ': 'Black Queen', 'WR': 'White Rook', 'BR': 'Black Rook', 'WB': 'White Bishop', 'BB': 'Black Bishop', 'WN': 'White Knight', 'BN': 'Black Knight' };
 
+        // Check for too many major pieces in Sudoku units
         for (const type of ['row', 'col', 'box']) {
             units[type].forEach((unit, i) => {
                 const counts = getCounts(unit);
@@ -303,7 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-        // This 'diag' check now correctly iterates over ALL diagonals thanks to the new getUnits()
+        // Check for too many of certain pieces on diagonals
         units.diag.forEach((diag, i) => {
             const counts = getCounts(diag);
             const diagPieceRules = {'WQ': 'White Queen', 'BQ': 'Black Queen', 'WB': 'White Bishop', 'BB': 'Black Bishop'};
@@ -312,13 +314,28 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // This 'diag' check now correctly iterates over ALL diagonals
+        // RULE: No unit may be completely filled.
         for (const type of ['row', 'col', 'box', 'diag']) {
             units[type].forEach((unit, i) => {
-                if ((getCounts(unit).EMPTY || 0) === 0) { positionalViolations.push({ message: `No Empty Square in ${type} ${i + 1}.`, locations: unit }); }
+                if ((getCounts(unit).EMPTY || 0) === 0) { 
+                    const unitName = type === 'diag' ? 'a diagonal' : `${type} ${i + 1}`;
+                    positionalViolations.push({ message: `No empty square in ${unitName}.`, locations: unit }); 
+                }
             });
         }
 
+        // NEW RULE: Corners must be empty.
+        const corners = [ [0, 0], [0, GRID_SIZE - 1], [GRID_SIZE - 1, 0], [GRID_SIZE - 1, GRID_SIZE - 1] ];
+        corners.forEach(([r, c]) => {
+            if (boardState[r][c]) { // If the corner is not null (i.e., has a piece)
+                positionalViolations.push({
+                    message: `Corner square at (${r},${c}) must be empty.`,
+                    locations: [[r, c]] // The location is the corner itself
+                });
+            }
+        });
+
+        // Global pawn rules
         for (const type of ['row', 'col', 'box']) {
              units[type].forEach((unit, i) => {
                 const counts = getCounts(unit);
@@ -327,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // Global total piece count rules
         const totalCounts = getCounts(units.all);
         const minCounts = { 'WQ': 1, 'BQ': 1, 'WR': 2, 'BR': 2, 'WB': 2, 'BB': 2, 'WN': 2, 'BN': 2, 'WP': 8, 'BP': 8 };
         for (const id in minCounts) {
@@ -337,6 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if((totalCounts['WK'] || 0) !== 1) { globalViolations.push({message: `There must be exactly one White King.`}); }
         if((totalCounts['BK'] || 0) !== 1) { globalViolations.push({message: `There must be exactly one Black King.`}); }
 
+        // King check rules
         const wkPos = findPiece('WK'), bkPos = findPiece('BK');
         if (wkPos && isSquareAttacked(wkPos[0], wkPos[1], 'black')) { positionalViolations.push({ message: 'White King is in check!', locations: [wkPos] }); }
         if (bkPos && isSquareAttacked(bkPos[0], bkPos[1], 'white')) { positionalViolations.push({ message: 'Black King is in check!', locations: [bkPos] }); }
@@ -344,7 +363,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return { positionalViolations, globalViolations };
     }
     
-    // *** THIS IS THE CORRECTED FUNCTION ***
     function getUnits() {
         const u = { row:[], col:[], box:[], diag:[], all:[] };
         
@@ -360,21 +378,16 @@ document.addEventListener('DOMContentLoaded', () => {
             u.box.push(b);
         }
 
-        // --- NEW DIAGONAL LOGIC ---
-        // This now generates ALL diagonals, not just the two main ones.
-        const diagsBySum = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); // For '/' diagonals (where r+c is constant)
-        const diagsByDiff = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); // For '\' diagonals (where r-c is constant)
+        const diagsBySum = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); 
+        const diagsByDiff = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); 
 
         for (let r = 0; r < GRID_SIZE; r++) {
             for (let c = 0; c < GRID_SIZE; c++) {
-                // Anti-diagonals (/) have a constant sum of coordinates
                 diagsBySum[r + c].push([r, c]);
-                // Forward-diagonals (\) have a constant difference of coordinates.
-                // We add (GRID_SIZE - 1) to the index to keep it non-negative.
                 diagsByDiff[r - c + (GRID_SIZE - 1)].push([r, c]);
             }
         }
-        // Combine both sets of diagonals and filter out any of length 1, as rules don't apply.
+        // Filter out diagonals of length 1, as rules don't apply to single squares in this general check
         u.diag = [...diagsBySum, ...diagsByDiff].filter(d => d.length > 1);
         
         return u;
