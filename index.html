@@ -272,7 +272,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // *** THIS IS THE CORRECTED FUNCTION ***
     function renderLog(logElement, violations, successMsg) {
         logElement.innerHTML = '';
         const ul = document.createElement('ul');
@@ -304,14 +303,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+        // This 'diag' check now correctly iterates over ALL diagonals thanks to the new getUnits()
         units.diag.forEach((diag, i) => {
             const counts = getCounts(diag);
             const diagPieceRules = {'WQ': 'White Queen', 'BQ': 'Black Queen', 'WB': 'White Bishop', 'BB': 'Black Bishop'};
             for(const id in diagPieceRules){
-                if (counts[id] > 1) { positionalViolations.push({ message: `Too many ${diagPieceRules[id]}s on diagonal ${i + 1}.`, locations: diag.filter(([r,c]) => boardState[r][c]?.id === id) }); }
+                if (counts[id] > 1) { positionalViolations.push({ message: `Too many ${diagPieceRules[id]}s on a diagonal.`, locations: diag.filter(([r,c]) => boardState[r][c]?.id === id) }); }
             }
         });
 
+        // This 'diag' check now correctly iterates over ALL diagonals
         for (const type of ['row', 'col', 'box', 'diag']) {
             units[type].forEach((unit, i) => {
                 if ((getCounts(unit).EMPTY || 0) === 0) { positionalViolations.push({ message: `No Empty Square in ${type} ${i + 1}.`, locations: unit }); }
@@ -343,8 +344,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return { positionalViolations, globalViolations };
     }
     
+    // *** THIS IS THE CORRECTED FUNCTION ***
     function getUnits() {
         const u = { row:[], col:[], box:[], diag:[], all:[] };
+        
+        // Row, Column, Box, and All Squares generation
         for (let i=0; i<GRID_SIZE; i++) {
             const r=[], c=[];
             for (let j=0; j<GRID_SIZE; j++) { r.push([i,j]); c.push([j,i]); u.all.push([i,j]); }
@@ -355,11 +359,27 @@ document.addEventListener('DOMContentLoaded', () => {
             for (let r=0; r<3; r++) for (let c=0; c<3; c++) b.push([br+r, bc+c]);
             u.box.push(b);
         }
-        const d1=[], d2=[];
-        for (let i=0; i<GRID_SIZE; i++) { d1.push([i,i]); d2.push([i,GRID_SIZE-1-i]); }
-        u.diag.push(d1, d2);
+
+        // --- NEW DIAGONAL LOGIC ---
+        // This now generates ALL diagonals, not just the two main ones.
+        const diagsBySum = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); // For '/' diagonals (where r+c is constant)
+        const diagsByDiff = Array(GRID_SIZE * 2 - 1).fill(null).map(() => []); // For '\' diagonals (where r-c is constant)
+
+        for (let r = 0; r < GRID_SIZE; r++) {
+            for (let c = 0; c < GRID_SIZE; c++) {
+                // Anti-diagonals (/) have a constant sum of coordinates
+                diagsBySum[r + c].push([r, c]);
+                // Forward-diagonals (\) have a constant difference of coordinates.
+                // We add (GRID_SIZE - 1) to the index to keep it non-negative.
+                diagsByDiff[r - c + (GRID_SIZE - 1)].push([r, c]);
+            }
+        }
+        // Combine both sets of diagonals and filter out any of length 1, as rules don't apply.
+        u.diag = [...diagsBySum, ...diagsByDiff].filter(d => d.length > 1);
+        
         return u;
     }
+
     function getCounts(unit) {
         const counts = {};
         unit.forEach(([r,c]) => { counts[boardState[r][c]?.id||'EMPTY']=(counts[boardState[r][c]?.id||'EMPTY']||0)+1; });
